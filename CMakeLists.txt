@@ -1,4 +1,7 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.18)
+
+# Enable C++ and CUDA
+project(particles-collision LANGUAGES CXX CUDA)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
@@ -7,54 +10,68 @@ set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
-project(particles-collision)
-
-# # Define where to fetch Catch2 from
-# include(FetchContent)
-# FetchContent_Declare(
-    # Catch2
-    # GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    # GIT_TAG        v3.6.0  # Or the latest stable tag
-# )
-# FetchContent_MakeAvailable(Catch2)
-
-# include(FetchContent)
-# FetchContent_Declare(SFML
-    # GIT_REPOSITORY https://github.com/SFML/SFML.git
-    # GIT_TAG 2.6.2
-    # GIT_SHALLOW ON
-    # EXCLUDE_FROM_ALL
-    # SYSTEM)
-# FetchContent_MakeAvailable(SFML)
-
-set(SOURCES
-    Particle.cpp
-)
-
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMakeModules)
-find_package(OpenMP)
-
-find_package(Catch2 REQUIRED)
-find_package(SFML COMPONENTS graphics REQUIRED)
-
-add_definitions("-Wall")
-
-# add_executable(tests ../tests/test.cpp ${SOURCES})
-# target_link_libraries(tests Catch2::Catch2WithMain)
-add_executable(particles-collision main.cpp ${SOURCES})
-
-set_property(TARGET particles-collision PROPERTY CXX_STANDARD 17)
-install(TARGETS particles-collision RUNTIME DESTINATION bin)
-
-target_link_libraries(particles-collision PRIVATE sfml-graphics)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(particles-collision PUBLIC OpenMP::OpenMP_CXX)
+if(NOT CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES "native")
 endif()
 
+# --- Dependencies ---
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMakeModules)
+
+find_package(OpenMP REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+find_package(SFML COMPONENTS graphics window system REQUIRED)
+
+# --- Shared Sources ---
+# These files are used by BOTH the GUI and the Benchmark
+set(COMMON_SOURCES
+    src/Particle.cpp
+    src/gpu_physics.cu
+)
+
+# ==========================================
+# TARGET 1: The GUI Application
+# ==========================================
+add_executable(particles-gui src/main.cpp ${COMMON_SOURCES})
+
+set_property(TARGET particles-gui PROPERTY CXX_STANDARD 17)
+set_property(TARGET particles-gui PROPERTY CUDA_STANDARD 14)
+
+target_link_libraries(particles-gui PRIVATE
+    sfml-graphics
+    sfml-window
+    sfml-system
+    OpenMP::OpenMP_CXX
+    CUDA::cudart
+)
+
+# ==========================================
+# TARGET 2: The Benchmark Tool
+# ==========================================
+add_executable(particles-bench src/bench.cpp ${COMMON_SOURCES})
+
+set_property(TARGET particles-bench PROPERTY CXX_STANDARD 17)
+set_property(TARGET particles-bench PROPERTY CUDA_STANDARD 14)
+
+# Note: We still link SFML Graphics because Particle.hpp uses sf::Color,
+# even if we don't open a window.
+target_link_libraries(particles-bench PRIVATE
+    sfml-graphics
+    sfml-window
+    sfml-system
+    OpenMP::OpenMP_CXX
+    CUDA::cudart
+)
+
+# --- Installation & Windows DLLs ---
+install(TARGETS particles-gui particles-bench RUNTIME DESTINATION bin)
+
 if(WIN32)
+    # Copy OpenAL to the bin folder so the exe can find it
     add_custom_command(
-        TARGET main
+        TARGET particles-gui
         COMMENT "Copy OpenAL DLL"
-        PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy ${SFML_SOURCE_DIR}/extlibs/bin/$<IF:$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>,x64,x86>/openal32.dll $<TARGET_FILE_DIR:main>
+        PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+        ${SFML_SOURCE_DIR}/extlibs/bin/$<IF:$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>,x64,x86>/openal32.dll 
+        $<TARGET_FILE_DIR:particles-gui>
         VERBATIM)
 endif()
