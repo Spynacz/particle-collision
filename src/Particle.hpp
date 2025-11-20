@@ -1,6 +1,8 @@
 #pragma once
 #include <SFML/Graphics.hpp>
 
+#include "ColorGradient.cpp"
+
 class Particle {
    public:
     double x, y;
@@ -9,6 +11,7 @@ class Particle {
     double mass;
     sf::Color color;
     size_t id;
+    ColorGradient colorGradient;
 
     // Konstruktor: pozycja (x,y), prędkość (vx,vy), promień r, masa m
     Particle(double x = 0.0, double y = 0.0, double vx = 0.0, double vy = 0.0,
@@ -18,4 +21,5 @@ class Particle {
 
     // Aktualizuje pozycję na podstawie prędkości i kroku czasowego dt
     void update(double dt);
+    void updateColor(double value);
 };
