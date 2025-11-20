@@ -19,6 +19,74 @@ using namespace std;
 typedef std::vector<size_t> GridCell;
 typedef std::map<int64_t, GridCell> ParticleGrid;
 
+struct Config {
+    int num_particles = 500;
+    int num_frames = 1000;
+    bool use_naive = false;
+    bool use_cuda = false;
+    bool render = false;
+    int particle_size = 5;
+    bool velocity_color = true;
+};
+
+void print_usage(const char* program_name) {
+    std::cout << "Usage: " << program_name << " [options]\n"
+              << "Options:\n"
+              << "  -n, --count <int>    Number of particles (default: 500)\n"
+              << "  -f, --frames <int>   Number of frames (default: 1000)\n"
+              << "  -s, --size <int>     Particle size (default: 5)\n"
+              << "  --naive              Use Naive O(N^2) algorithm\n"
+              << "  --cuda               Use CUDA implementation\n"
+              << "  --render             Enable rendering\n"
+              << "  --no-color           Disable velocity coloring\n"
+              << "  -h, --help           Show this help message\n"
+              << std::endl;
+}
+
+Config parse_args(int argc, char* argv[]) {
+    Config config;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+
+        if (arg == "-h" || arg == "--help") {
+            print_usage(argv[0]);
+            std::exit(0);
+        } else if (arg == "-n" || arg == "--count") {
+            if (i + 1 < argc) {
+                config.num_particles = std::stoi(argv[++i]);
+            } else {
+                std::cerr << "--count requires an argument\n";
+                std::exit(1);
+            }
+        } else if (arg == "-f" || arg == "--frames") {
+            if (i + 1 < argc) {
+                config.num_frames = std::stoi(argv[++i]);
+            } else {
+                std::cerr << "--frames requires an argument\n";
+                std::exit(1);
+            }
+        } else if (arg == "-s" || arg == "--size") {
+            if (i + 1 < argc) {
+                config.particle_size = std::stoi(argv[++i]);
+            }
+        } else if (arg == "--naive") {
+            config.use_naive = true;
+        } else if (arg == "--cuda") {
+            config.use_cuda = true;
+        } else if (arg == "--render") {
+            config.render = true;
+        } else if (arg == "--no-color") {
+            config.velocity_color = false;
+        } else {
+            std::cerr << "Unknown argument: " << arg << "\n";
+            print_usage(argv[0]);
+            std::exit(1);
+        }
+    }
+    return config;
+}
+
 extern "C" void run_cuda_simulation(CudaParticle* host_particles,
                                     int num_particles, float dt, int width,
                                     int height);
@@ -131,37 +199,30 @@ void handle_collisions_grid_omp(std::vector<Particle>& particles,
 }
 
 int main(int argc, char* argv[]) {
-    // --- Configuration Defaults ---
-    int num_particles = 500;
-    int num_frames = 1000;
-    bool use_naive = false;
-    bool use_cuda = false;
-    bool render = false;
-    int particle_size = 5;
-    int velocity_color = true;
+    Config cfg = parse_args(argc, argv);
 
-    // --- Simple Arg Parsing ---
-    // Usage: ./simulation [N] [Frames] [Mode: 0=Grid, 1=Naive, 2=CUDA] [Render:
-    // 0=No, 1=Yes] [Ball Size]
-    if (argc > 1) num_particles = atoi(argv[1]);
-    if (argc > 2) num_frames = atoi(argv[2]);
-    if (argc > 3) use_naive = (atoi(argv[3]) == 1);
-    if (argc > 3) use_cuda = (atoi(argv[3]) == 2);
-    if (argc > 4) render = (atoi(argv[4]) == 1);
-    if (argc > 5) particle_size = atoi(argv[5]);
-    if (argc > 6) velocity_color = (atoi(argv[6]) == 1);
+    if (cfg.use_naive && cfg.use_cuda) {
+        std::cerr
+            << "Warning: Both Naive and CUDA selected. Defaulting to CUDA.\n";
+        cfg.use_naive = false;
+    }
 
-    std::cout << "Running: " << num_particles << " particles, " << num_frames
-              << " frames. "
-              << "Algorithm: " << (use_naive ? "Naive O(N^2)" : "Grid O(N)")
-              << ". "
-              << "Render: " << (render ? "ON" : "OFF") << "."
-              << "Use CUDA: " << (use_cuda ? "ON" : "OFF") << "." << std::endl;
+    std::cout << "--- Simulation Configuration ---\n"
+              << "Particles: " << cfg.num_particles << "\n"
+              << "Frames:    " << cfg.num_frames << "\n"
+              << "Algorithm: "
+              << (cfg.use_cuda ? "CUDA"
+                               : (cfg.use_naive ? "Naive O(N^2)" : "Grid O(N)"))
+              << "\n"
+              << "Render:    " << (cfg.render ? "ON" : "OFF") << "\n"
+              << "Ball Size: " << cfg.particle_size << "\n"
+              << "--------------------------------" << std::endl;
 
     // --- Init ---
     sf::RenderWindow window;
     if (render) {
         window.create(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Benchmarks");
+    if (cfg.render) {
         window.setFramerateLimit(60);
     }
 
@@ -170,7 +231,7 @@ int main(int argc, char* argv[]) {
     vector<omp_lock_t> locks;
     ParticleGrid grid;
 
-    for (int i = 0; i < num_particles; i++) {
+    for (int i = 0; i < cfg.num_particles; i++) {
         Particle p;
         p.randomize(WINDOW_WIDTH, WINDOW_HEIGHT, particle_size);
         p.id = i;
@@ -185,9 +246,9 @@ int main(int argc, char* argv[]) {
     auto start_time = std::chrono::high_resolution_clock::now();
     int frame_count = 0;
 
-    while (frame_count < num_frames) {
+    while (frame_count < cfg.num_frames) {
         // SFML Event Handling (Keep window responsive if rendering)
-        if (render) {
+        if (cfg.render) {
             sf::Event event;
             while (window.pollEvent(event)) {
                 if (event.type == sf::Event::Closed) {
@@ -198,16 +259,16 @@ int main(int argc, char* argv[]) {
         }
 
         // --- PHYSICS ---
-        if (use_naive) {
+        if (cfg.use_naive) {
             for (auto& p : particles) {
                 p.update(0.1);
-                if (velocity_color) {
+                if (cfg.velocity_color) {
                     p.updateColor((p.vx * p.vx + p.vy * p.vy) / 100.0);
                 }
             }
             handle_wall_collisions(WINDOW_WIDTH, WINDOW_HEIGHT, particles);
             handle_collisions_naive(particles);
-        } else if (use_cuda) {
+        } else if (cfg.use_cuda) {
             // 1. Convert Particle -> CudaParticle
             std::vector<CudaParticle> c_particles(particles.size());
             for (size_t i = 0; i < particles.size(); ++i) {
@@ -232,7 +293,7 @@ int main(int argc, char* argv[]) {
                 particles[i].vx = c_particles[i].vx;
                 particles[i].vy = c_particles[i].vy;
 
-                if (velocity_color) {
+                if (cfg.velocity_color) {
                     float r, g, b;
                     float velocity_magnitude =
                         (particles[i].vx * particles[i].vx +
@@ -251,7 +312,7 @@ int main(int argc, char* argv[]) {
             // clang-format on
             for (size_t i = 0; i < particles.size(); ++i) {
                 particles[i].update(0.1);
-                if (velocity_color) {
+                if (cfg.velocity_color) {
                     particles[i].updateColor(
                         (particles[i].vx * particles[i].vx +
                          particles[i].vy * particles[i].vy) /
@@ -264,7 +325,7 @@ int main(int argc, char* argv[]) {
         }
 
         // --- RENDER ---
-        if (render && window.isOpen()) {
+        if (cfg.render && window.isOpen()) {
             window.clear();
             for (auto& p : particles) {
                 sf::CircleShape shape(p.radius);
@@ -283,7 +344,7 @@ int main(int argc, char* argv[]) {
     std::chrono::duration<double> diff = end_time - start_time;
 
     // --- Results ---
-    double fps = num_frames / diff.count();
+    double fps = cfg.num_frames / diff.count();
     std::cout << "------------------------------------------------"
               << std::endl;
     std::cout << "Time: " << diff.count() << " s" << std::endl;
