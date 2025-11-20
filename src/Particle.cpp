@@ -10,8 +10,6 @@ Particle::Particle(double x, double y, double vx, double vy, double radius,
 void Particle::update(double dt) {
     x += vx * dt;
     y += vy * dt;
-
-    updateColor((vx * vx + vy * vy) / 100.0);
 }
 
 void Particle::updateColor(double value) {

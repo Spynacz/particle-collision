@@ -101,8 +101,8 @@ void handle_collisions_grid_omp(std::vector<Particle>& particles,
         grid[getCellKey(cellX, cellY)].push_back(i);
     }
 
-    // 2. Parallel Collision Checks
-    // clang-format off
+// 2. Parallel Collision Checks
+// clang-format off
     #pragma omp parallel for
     // clang-format on
     for (size_t i = 0; i < particles.size(); ++i) {
@@ -138,6 +138,7 @@ int main(int argc, char* argv[]) {
     bool use_cuda = false;
     bool render = false;
     int particle_size = 5;
+    int velocity_color = true;
 
     // --- Simple Arg Parsing ---
     // Usage: ./simulation [N] [Frames] [Mode: 0=Grid, 1=Naive, 2=CUDA] [Render:
@@ -148,6 +149,7 @@ int main(int argc, char* argv[]) {
     if (argc > 3) use_cuda = (atoi(argv[3]) == 2);
     if (argc > 4) render = (atoi(argv[4]) == 1);
     if (argc > 5) particle_size = atoi(argv[5]);
+    if (argc > 6) velocity_color = (atoi(argv[6]) == 1);
 
     std::cout << "Running: " << num_particles << " particles, " << num_frames
               << " frames. "
@@ -197,7 +199,12 @@ int main(int argc, char* argv[]) {
 
         // --- PHYSICS ---
         if (use_naive) {
-            for (auto& p : particles) p.update(0.1);
+            for (auto& p : particles) {
+                p.update(0.1);
+                if (velocity_color) {
+                    p.updateColor((p.vx * p.vx + p.vy * p.vy) / 100.0);
+                }
+            }
             handle_wall_collisions(WINDOW_WIDTH, WINDOW_HEIGHT, particles);
             handle_collisions_naive(particles);
         } else if (use_cuda) {
@@ -225,21 +232,32 @@ int main(int argc, char* argv[]) {
                 particles[i].vx = c_particles[i].vx;
                 particles[i].vy = c_particles[i].vy;
 
-                float r, g, b;
-                float velocity_magnitude = (particles[i].vx * particles[i].vx +
-                                            particles[i].vy * particles[i].vy);
-                gradient.getColorAtValue(velocity_magnitude / 100, r, g, b);
-                particles[i].color = sf::Color(static_cast<sf::Uint8>(r * 255),
-                                               static_cast<sf::Uint8>(g * 255),
-                                               static_cast<sf::Uint8>(b * 255));
+                if (velocity_color) {
+                    float r, g, b;
+                    float velocity_magnitude =
+                        (particles[i].vx * particles[i].vx +
+                         particles[i].vy * particles[i].vy);
+                    gradient.getColorAtValue(velocity_magnitude / 100, r, g, b);
+                    particles[i].color =
+                        sf::Color(static_cast<sf::Uint8>(r * 255),
+                                  static_cast<sf::Uint8>(g * 255),
+                                  static_cast<sf::Uint8>(b * 255));
+                }
             }
         } else {
-            // Grid/OMP version
-            // clang-format off
+// Grid/OMP version
+// clang-format off
             #pragma omp parallel for
             // clang-format on
-            for (size_t i = 0; i < particles.size(); ++i)
+            for (size_t i = 0; i < particles.size(); ++i) {
                 particles[i].update(0.1);
+                if (velocity_color) {
+                    particles[i].updateColor(
+                        (particles[i].vx * particles[i].vx +
+                         particles[i].vy * particles[i].vy) /
+                        100.0);
+                }
+            }
 
             handle_wall_collisions(WINDOW_WIDTH, WINDOW_HEIGHT, particles);
             handle_collisions_grid_omp(particles, grid, locks);
