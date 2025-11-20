@@ -88,7 +88,6 @@ void handle_single_collision(Particle& p1, Particle& p2) {
 void handle_ball_collisions_omp(std::vector<Particle>& particles,
                                 ParticleGrid& grid,
                                 std::vector<omp_lock_t>& particle_locks) {
-
     // grid population not parallelized
     grid.clear();
     for (size_t i = 0; i < particles.size(); ++i) {
@@ -96,7 +95,7 @@ void handle_ball_collisions_omp(std::vector<Particle>& particles,
         int cellY = static_cast<int>(particles[i].y / GRID_CELL_SIZE);
         grid[getCellKey(cellX, cellY)].push_back(i);
     }
-    
+
     // collisions parallel
     // clang-format off
     #pragma omp parallel for
@@ -148,7 +147,7 @@ int main() {
 
     for (int i = 0; i < 300; i++) {
         Particle particle = Particle();
-        particle.randomize(window.getSize().x, window.getSize().y);
+        particle.randomize(window.getSize().x, window.getSize().y, 5);
         particle.id = i;
         particles.push_back(particle);
 

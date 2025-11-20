@@ -101,8 +101,8 @@ void handle_collisions_grid_omp(std::vector<Particle>& particles,
         grid[getCellKey(cellX, cellY)].push_back(i);
     }
 
-// 2. Parallel Collision Checks
-// clang-format off
+    // 2. Parallel Collision Checks
+    // clang-format off
     #pragma omp parallel for
     // clang-format on
     for (size_t i = 0; i < particles.size(); ++i) {
@@ -137,15 +137,17 @@ int main(int argc, char* argv[]) {
     bool use_naive = false;
     bool use_cuda = false;
     bool render = false;
+    int particle_size = 5;
 
     // --- Simple Arg Parsing ---
     // Usage: ./simulation [N] [Frames] [Mode: 0=Grid, 1=Naive, 2=CUDA] [Render:
-    // 0=No, 1=Yes]
+    // 0=No, 1=Yes] [Ball Size]
     if (argc > 1) num_particles = atoi(argv[1]);
     if (argc > 2) num_frames = atoi(argv[2]);
     if (argc > 3) use_naive = (atoi(argv[3]) == 1);
     if (argc > 3) use_cuda = (atoi(argv[3]) == 2);
     if (argc > 4) render = (atoi(argv[4]) == 1);
+    if (argc > 5) particle_size = atoi(argv[5]);
 
     std::cout << "Running: " << num_particles << " particles, " << num_frames
               << " frames. "
@@ -168,7 +170,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < num_particles; i++) {
         Particle p;
-        p.randomize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        p.randomize(WINDOW_WIDTH, WINDOW_HEIGHT, particle_size);
         p.id = i;
         particles.push_back(p);
 
@@ -232,8 +234,8 @@ int main(int argc, char* argv[]) {
                                                static_cast<sf::Uint8>(b * 255));
             }
         } else {
-// Grid/OMP version
-// clang-format off
+            // Grid/OMP version
+            // clang-format off
             #pragma omp parallel for
             // clang-format on
             for (size_t i = 0; i < particles.size(); ++i)

@@ -22,8 +22,8 @@ void Particle::updateColor(double value) {
                       static_cast<sf::Uint8>(b * 255));
 }
 
-Particle Particle::randomize(int s_width, int s_height) {
-    radius = static_cast<double>((rand() % 20) + 1);
+Particle Particle::randomize(int s_width, int s_height, int particle_size) {
+    radius = static_cast<double>((rand() % particle_size) + 1);
 
     double min_x = radius;
     double min_y = radius;

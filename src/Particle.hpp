@@ -17,7 +17,7 @@ class Particle {
     Particle(double x = 0.0, double y = 0.0, double vx = 0.0, double vy = 0.0,
              double radius = 5.0, double mass = 1.0);
 
-    Particle randomize(int s_width, int s_height);
+    Particle randomize(int s_width, int s_height, int particle_size = 5);
 
     // Aktualizuje pozycję na podstawie prędkości i kroku czasowego dt
     void update(double dt);
