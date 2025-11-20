@@ -12,14 +12,16 @@
 
 using namespace std;
 
-#define WINDOW_WIDTH 1000
-#define WINDOW_HEIGHT 800
+#define WINDOW_WIDTH 1900
+#define WINDOW_HEIGHT 1000
 #define GRID_CELL_SIZE 50
 
 typedef std::vector<size_t> GridCell;
 typedef std::map<int64_t, GridCell> ParticleGrid;
 
-extern "C" void run_cuda_simulation(CudaParticle* host_particles, int num_particles, float dt, int width, int height);
+extern "C" void run_cuda_simulation(CudaParticle* host_particles,
+                                    int num_particles, float dt, int width,
+                                    int height);
 
 int64_t getCellKey(int x, int y) {
     return (static_cast<int64_t>(x) << 32) | static_cast<int64_t>(y);
@@ -99,8 +101,8 @@ void handle_collisions_grid_omp(std::vector<Particle>& particles,
         grid[getCellKey(cellX, cellY)].push_back(i);
     }
 
-    // 2. Parallel Collision Checks
-    // clang-format off
+// 2. Parallel Collision Checks
+// clang-format off
     #pragma omp parallel for
     // clang-format on
     for (size_t i = 0; i < particles.size(); ++i) {
@@ -135,20 +137,26 @@ int main(int argc, char* argv[]) {
     bool use_naive = false;
     bool use_cuda = false;
     bool render = false;
+    int particle_size = 5;
+    int velocity_color = true;
 
     // --- Simple Arg Parsing ---
-    // Usage: ./simulation [N] [Frames] [Mode: 0=Grid, 1=Naive, 2=CUDA] [Render: 0=No,
-    // 1=Yes]
+    // Usage: ./simulation [N] [Frames] [Mode: 0=Grid, 1=Naive, 2=CUDA] [Render:
+    // 0=No, 1=Yes] [Ball Size]
     if (argc > 1) num_particles = atoi(argv[1]);
     if (argc > 2) num_frames = atoi(argv[2]);
     if (argc > 3) use_naive = (atoi(argv[3]) == 1);
+    if (argc > 3) use_cuda = (atoi(argv[3]) == 2);
     if (argc > 4) render = (atoi(argv[4]) == 1);
+    if (argc > 5) particle_size = atoi(argv[5]);
+    if (argc > 6) velocity_color = (atoi(argv[6]) == 1);
 
     std::cout << "Running: " << num_particles << " particles, " << num_frames
               << " frames. "
               << "Algorithm: " << (use_naive ? "Naive O(N^2)" : "Grid O(N)")
               << ". "
-              << "Render: " << (render ? "ON" : "OFF") << "." << std::endl;
+              << "Render: " << (render ? "ON" : "OFF") << "."
+              << "Use CUDA: " << (use_cuda ? "ON" : "OFF") << "." << std::endl;
 
     // --- Init ---
     sf::RenderWindow window;
@@ -164,7 +172,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < num_particles; i++) {
         Particle p;
-        p.randomize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        p.randomize(WINDOW_WIDTH, WINDOW_HEIGHT, particle_size);
         p.id = i;
         particles.push_back(p);
 
@@ -191,7 +199,12 @@ int main(int argc, char* argv[]) {
 
         // --- PHYSICS ---
         if (use_naive) {
-            for (auto& p : particles) p.update(0.1);
+            for (auto& p : particles) {
+                p.update(0.1);
+                if (velocity_color) {
+                    p.updateColor((p.vx * p.vx + p.vy * p.vy) / 100.0);
+                }
+            }
             handle_wall_collisions(WINDOW_WIDTH, WINDOW_HEIGHT, particles);
             handle_collisions_naive(particles);
         } else if (use_cuda) {
@@ -210,20 +223,41 @@ int main(int argc, char* argv[]) {
             run_cuda_simulation(c_particles.data(), c_particles.size(), 0.1f,
                                 WINDOW_WIDTH, WINDOW_HEIGHT);
 
+            ColorGradient gradient;
+            gradient.viridisHeatMap();
             // 3. Convert CudaParticle -> Particle
             for (size_t i = 0; i < particles.size(); ++i) {
                 particles[i].x = c_particles[i].x;
                 particles[i].y = c_particles[i].y;
                 particles[i].vx = c_particles[i].vx;
                 particles[i].vy = c_particles[i].vy;
+
+                if (velocity_color) {
+                    float r, g, b;
+                    float velocity_magnitude =
+                        (particles[i].vx * particles[i].vx +
+                         particles[i].vy * particles[i].vy);
+                    gradient.getColorAtValue(velocity_magnitude / 100, r, g, b);
+                    particles[i].color =
+                        sf::Color(static_cast<sf::Uint8>(r * 255),
+                                  static_cast<sf::Uint8>(g * 255),
+                                  static_cast<sf::Uint8>(b * 255));
+                }
             }
         } else {
-            // Grid/OMP version
-            // clang-format off
+// Grid/OMP version
+// clang-format off
             #pragma omp parallel for
             // clang-format on
-            for (size_t i = 0; i < particles.size(); ++i)
+            for (size_t i = 0; i < particles.size(); ++i) {
                 particles[i].update(0.1);
+                if (velocity_color) {
+                    particles[i].updateColor(
+                        (particles[i].vx * particles[i].vx +
+                         particles[i].vy * particles[i].vy) /
+                        100.0);
+                }
+            }
 
             handle_wall_collisions(WINDOW_WIDTH, WINDOW_HEIGHT, particles);
             handle_collisions_grid_omp(particles, grid, locks);

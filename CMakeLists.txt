@@ -26,6 +26,7 @@ find_package(SFML COMPONENTS graphics window system REQUIRED)
 set(COMMON_SOURCES
     src/Particle.cpp
     src/gpu_physics.cu
+    src/ColorGradient.cpp
 )
 
 # ==========================================
