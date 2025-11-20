@@ -12,8 +12,8 @@
 
 using namespace std;
 
-#define WINDOW_WIDTH 1900
-#define WINDOW_HEIGHT 1000
+#define INITIAL_WIDTH 1600
+#define INITIAL_HEIGHT 900
 #define GRID_CELL_SIZE 50
 
 typedef std::vector<size_t> GridCell;
@@ -220,9 +220,9 @@ int main(int argc, char* argv[]) {
 
     // --- Init ---
     sf::RenderWindow window;
-    if (render) {
-        window.create(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Benchmarks");
     if (cfg.render) {
+        window.create(sf::VideoMode(INITIAL_WIDTH, INITIAL_HEIGHT),
+                      "Benchmarks");
         window.setFramerateLimit(60);
     }
 
@@ -233,7 +233,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < cfg.num_particles; i++) {
         Particle p;
-        p.randomize(WINDOW_WIDTH, WINDOW_HEIGHT, particle_size);
+        p.randomize(window.getSize().x, window.getSize().y, cfg.particle_size);
         p.id = i;
         particles.push_back(p);
 
@@ -255,6 +255,13 @@ int main(int argc, char* argv[]) {
                     window.close();
                     return 0;
                 }
+                if (event.type == sf::Event::Resized) {
+                    sf::FloatRect visibleArea(0, 0, event.size.width,
+                                              event.size.height);
+                    window.setView(sf::View(visibleArea));
+                    handle_wall_collisions(window.getSize().x,
+                                           window.getSize().y, particles);
+                }
             }
         }
 
@@ -266,7 +273,8 @@ int main(int argc, char* argv[]) {
                     p.updateColor((p.vx * p.vx + p.vy * p.vy) / 100.0);
                 }
             }
-            handle_wall_collisions(WINDOW_WIDTH, WINDOW_HEIGHT, particles);
+            handle_wall_collisions(window.getSize().x, window.getSize().y,
+                                   particles);
             handle_collisions_naive(particles);
         } else if (cfg.use_cuda) {
             // 1. Convert Particle -> CudaParticle
@@ -282,7 +290,7 @@ int main(int argc, char* argv[]) {
 
             // 2. Run GPU Simulation
             run_cuda_simulation(c_particles.data(), c_particles.size(), 0.1f,
-                                WINDOW_WIDTH, WINDOW_HEIGHT);
+                                window.getSize().x, window.getSize().y);
 
             ColorGradient gradient;
             gradient.viridisHeatMap();
@@ -320,7 +328,8 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            handle_wall_collisions(WINDOW_WIDTH, WINDOW_HEIGHT, particles);
+            handle_wall_collisions(window.getSize().x, window.getSize().y,
+                                   particles);
             handle_collisions_grid_omp(particles, grid, locks);
         }
 
