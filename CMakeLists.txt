@@ -20,16 +20,23 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMakeModules)
 find_package(OpenMP REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 find_package(SFML COMPONENTS graphics window system REQUIRED)
+find_package(MPI REQUIRED)  # <--- Added MPI Dependency
 
-# --- Shared Sources ---
+# --- Shared CPU Sources ---
+# We moved gpu_physics.cu OUT of here because MPI doesn't need it.
 set(COMMON_SOURCES
     src/Particle.cpp
-    src/gpu_physics.cu
     src/ColorGradient.cpp
 )
 
-# target 
-add_executable(particles-bench src/main.cpp ${COMMON_SOURCES})
+# ==========================================
+# Target 1: Original Benchmark (OpenMP + CUDA)
+# ==========================================
+add_executable(particles-bench 
+    src/main.cpp 
+    src/gpu_physics.cu  # CUDA kernel added specifically here
+    ${COMMON_SOURCES}
+)
 
 set_property(TARGET particles-bench PROPERTY CXX_STANDARD 17)
 set_property(TARGET particles-bench PROPERTY CUDA_STANDARD 14)
@@ -42,16 +49,23 @@ target_link_libraries(particles-bench PRIVATE
     CUDA::cudart
 )
 
-# --- Installation & Windows DLLs ---
-install(TARGETS particles-bench RUNTIME DESTINATION bin)
+# ==========================================
+# Target 2: MPI Implementation
+# ==========================================
+add_executable(particles-mpi 
+    src/main-mpi.cpp 
+    ${COMMON_SOURCES}
+)
 
-# if(WIN32)
-#     # Copy OpenAL to the bin folder so the exe can find it
-#     add_custom_command(
-#         TARGET particles-gui
-#         COMMENT "Copy OpenAL DLL"
-#         PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
-#         ${SFML_SOURCE_DIR}/extlibs/bin/$<IF:$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>,x64,x86>/openal32.dll 
-#         $<TARGET_FILE_DIR:particles-gui>
-#         VERBATIM)
-# endif()
+set_property(TARGET particles-mpi PROPERTY CXX_STANDARD 17)
+
+# Link MPI and SFML (No CUDA needed here)
+target_link_libraries(particles-mpi PRIVATE
+    sfml-graphics
+    sfml-window
+    sfml-system
+    MPI::MPI_CXX
+)
+
+# --- Installation ---
+install(TARGETS particles-bench particles-mpi RUNTIME DESTINATION bin)
