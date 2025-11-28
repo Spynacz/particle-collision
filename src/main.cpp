@@ -219,21 +219,23 @@ int main(int argc, char* argv[]) {
               << "--------------------------------" << std::endl;
 
     // --- Init ---
+    int sim_width = INITIAL_WIDTH;
+    int sim_height = INITIAL_HEIGHT;
     sf::RenderWindow window;
     if (cfg.render) {
-        window.create(sf::VideoMode(INITIAL_WIDTH, INITIAL_HEIGHT),
-                      "Benchmarks");
+        window.create(sf::VideoMode(sim_width, sim_height), "Benchmarks");
         window.setFramerateLimit(60);
     }
 
-    srand(42);  // Fixed seed for consistent benchmarks
+    srand(42);
     vector<Particle> particles;
     vector<omp_lock_t> locks;
     ParticleGrid grid;
 
     for (int i = 0; i < cfg.num_particles; i++) {
         Particle p;
-        p.randomize(window.getSize().x, window.getSize().y, cfg.particle_size);
+        // FIX: Use sim_width/sim_height instead of window.getSize()
+        p.randomize(sim_width, sim_height, cfg.particle_size);
         p.id = i;
         particles.push_back(p);
 
@@ -247,7 +249,6 @@ int main(int argc, char* argv[]) {
     int frame_count = 0;
 
     while (frame_count < cfg.num_frames) {
-        // SFML Event Handling (Keep window responsive if rendering)
         if (cfg.render) {
             sf::Event event;
             while (window.pollEvent(event)) {
@@ -256,11 +257,13 @@ int main(int argc, char* argv[]) {
                     return 0;
                 }
                 if (event.type == sf::Event::Resized) {
+                    // Update simulation bounds if window is resized
                     sf::FloatRect visibleArea(0, 0, event.size.width,
                                               event.size.height);
                     window.setView(sf::View(visibleArea));
-                    handle_wall_collisions(window.getSize().x,
-                                           window.getSize().y, particles);
+
+                    sim_width = event.size.width;
+                    sim_height = event.size.height;
                 }
             }
         }
@@ -273,8 +276,8 @@ int main(int argc, char* argv[]) {
                     p.updateColor((p.vx * p.vx + p.vy * p.vy) / 100.0);
                 }
             }
-            handle_wall_collisions(window.getSize().x, window.getSize().y,
-                                   particles);
+            handle_wall_collisions(sim_width, sim_height,
+                                   particles);  // <--- FIXED
             handle_collisions_naive(particles);
         } else if (cfg.use_cuda) {
             // 1. Convert Particle -> CudaParticle
@@ -290,7 +293,7 @@ int main(int argc, char* argv[]) {
 
             // 2. Run GPU Simulation
             run_cuda_simulation(c_particles.data(), c_particles.size(), 0.1f,
-                                window.getSize().x, window.getSize().y);
+                                sim_width, sim_height);
 
             ColorGradient gradient;
             gradient.viridisHeatMap();
@@ -328,8 +331,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            handle_wall_collisions(window.getSize().x, window.getSize().y,
-                                   particles);
+            handle_wall_collisions(sim_width, sim_height, particles);
             handle_collisions_grid_omp(particles, grid, locks);
         }
 
