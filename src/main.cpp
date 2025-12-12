@@ -234,7 +234,6 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < cfg.num_particles; i++) {
         Particle p;
-        // FIX: Use sim_width/sim_height instead of window.getSize()
         p.randomize(sim_width, sim_height, cfg.particle_size);
         p.id = i;
         particles.push_back(p);
@@ -280,7 +279,7 @@ int main(int argc, char* argv[]) {
                                    particles);  // <--- FIXED
             handle_collisions_naive(particles);
         } else if (cfg.use_cuda) {
-            // 1. Convert Particle -> CudaParticle
+            // Convert Particle -> CudaParticle
             std::vector<CudaParticle> c_particles(particles.size());
             for (size_t i = 0; i < particles.size(); ++i) {
                 c_particles[i].x = (float)particles[i].x;
@@ -291,13 +290,12 @@ int main(int argc, char* argv[]) {
                 c_particles[i].mass = (float)particles[i].mass;
             }
 
-            // 2. Run GPU Simulation
             run_cuda_simulation(c_particles.data(), c_particles.size(), 0.1f,
                                 sim_width, sim_height);
 
             ColorGradient gradient;
             gradient.viridisHeatMap();
-            // 3. Convert CudaParticle -> Particle
+            // Convert CudaParticle -> Particle
             for (size_t i = 0; i < particles.size(); ++i) {
                 particles[i].x = c_particles[i].x;
                 particles[i].y = c_particles[i].y;
@@ -335,7 +333,6 @@ int main(int argc, char* argv[]) {
             handle_collisions_grid_omp(particles, grid, locks);
         }
 
-        // --- RENDER ---
         if (cfg.render && window.isOpen()) {
             window.clear();
             for (auto& p : particles) {
@@ -354,7 +351,6 @@ int main(int argc, char* argv[]) {
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end_time - start_time;
 
-    // --- Results ---
     double fps = cfg.num_frames / diff.count();
     std::cout << "------------------------------------------------"
               << std::endl;
@@ -363,7 +359,6 @@ int main(int argc, char* argv[]) {
     std::cout << "------------------------------------------------"
               << std::endl;
 
-    // Cleanup
     for (auto& lock : locks) omp_destroy_lock(&lock);
 
     return 0;

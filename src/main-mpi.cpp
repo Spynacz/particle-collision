@@ -9,7 +9,6 @@
 
 #include "Particle.hpp"
 
-// We use a POD (Plain Old Data) struct for MPI communication to avoid serializing the full class
 struct MpiParticleData {
     double x, y;
     double vx, vy;
@@ -18,7 +17,6 @@ struct MpiParticleData {
     size_t id;
 };
 
-// Configuration struct similar to main.cpp
 struct Config {
     int num_particles = 500;
     int num_frames = 1000;
@@ -28,7 +26,6 @@ struct Config {
     int world_height = 900;
 };
 
-// Grid typedefs
 #define GRID_CELL_SIZE 50
 typedef std::vector<size_t> GridCell;
 typedef std::map<int64_t, GridCell> ParticleGrid;
@@ -37,7 +34,6 @@ int64_t getCellKey(int x, int y) {
     return (static_cast<int64_t>(x) << 32) | static_cast<int64_t>(y);
 }
 
-// Reuse your existing collision logic (stripped of OpenMP locks for pure MPI comparison)
 void handle_single_collision(Particle& p1, Particle& p2) {
     double dx = p2.x - p1.x;
     double dy = p2.y - p1.y;
@@ -58,7 +54,6 @@ void handle_single_collision(Particle& p1, Particle& p2) {
         p2.vx -= impulse * p1.mass * nx;
         p2.vy -= impulse * p1.mass * ny;
 
-        // Anti-jitter / Overlap correction
         double totalMass = p1.mass + p2.mass;
         double overlap = 0.5 * (p1.radius + p2.radius - dist);
         p1.x -= overlap * (p2.mass / totalMass) * nx;
@@ -71,9 +66,7 @@ void handle_single_collision(Particle& p1, Particle& p2) {
 void handle_collisions_grid_local(std::vector<Particle>& particles, ParticleGrid& grid) {
     grid.clear();
     
-    // 1. Populate Grid with indices of local particles
     for (size_t i = 0; i < particles.size(); ++i) {
-        // Safety check: ensure particle is actually inside the map (MPI drift might cause issues)
         if(particles[i].x < 0 || particles[i].y < 0) continue; 
         
         int cellX = static_cast<int>(particles[i].x / GRID_CELL_SIZE);
@@ -81,7 +74,6 @@ void handle_collisions_grid_local(std::vector<Particle>& particles, ParticleGrid
         grid[getCellKey(cellX, cellY)].push_back(i);
     }
 
-    // 2. Check Collisions
     for (size_t i = 0; i < particles.size(); ++i) {
         Particle& p1 = particles[i];
         int cellX = static_cast<int>(p1.x / GRID_CELL_SIZE);
@@ -93,7 +85,7 @@ void handle_collisions_grid_local(std::vector<Particle>& particles, ParticleGrid
                 if (it == grid.end()) continue;
 
                 for (size_t j_idx : it->second) {
-                    if (i >= j_idx) continue; // Avoid double check
+                    if (i >= j_idx) continue;
                     handle_single_collision(p1, particles[j_idx]);
                 }
             }
@@ -122,17 +114,13 @@ Config parse_args(int argc, char* argv[]) {
     return config;
 }
 
-// Convert Particle class to POD struct for MPI transmission
 MpiParticleData pack_particle(const Particle& p) {
     return {p.x, p.y, p.vx, p.vy, p.radius, p.mass, p.id};
 }
 
-// Convert POD struct back to Particle class
 Particle unpack_particle(const MpiParticleData& data) {
     Particle p(data.x, data.y, data.vx, data.vy, data.radius, data.mass);
     p.id = data.id;
-    // We can re-apply color logic locally if needed, or send it. 
-    // For bandwidth, we calculate color locally based on velocity.
     return p;
 }
 
@@ -143,22 +131,18 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    // Create MPI Type for our particle struct
     MPI_Datatype mpi_particle_type;
-    MPI_Type_contiguous(7, MPI_DOUBLE, &mpi_particle_type); // 7 doubles in struct
-    MPI_Type_commit(&mpi_particle_type); // Note: size_t is usually 8 bytes (double size), so this works on 64bit
+    MPI_Type_contiguous(7, MPI_DOUBLE, &mpi_particle_type);
+    MPI_Type_commit(&mpi_particle_type);
 
     Config cfg = parse_args(argc, argv);
-    srand(42 + world_rank); // Different seed per rank
+    srand(42 + world_rank);
 
-    // --- Domain Decomposition ---
-    // We split the screen vertically into columns.
+    // split the screen vertically into columns.
     double domain_width = (double)cfg.world_width / world_size;
     double min_x = world_rank * domain_width;
     double max_x = (world_rank + 1) * domain_width;
 
-    // --- Initialization ---
-    // Distribute particles approximately evenly
     int particles_per_rank = cfg.num_particles / world_size;
     if (world_rank == world_size - 1) {
         particles_per_rank += cfg.num_particles % world_size; // Last rank takes remainder
@@ -169,29 +153,24 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < particles_per_rank; i++) {
         Particle p;
-        // Randomize within ENTIRE world first
         p.randomize(cfg.world_width, cfg.world_height, cfg.particle_size);
         
-        // Force particle into this rank's domain to start
         p.x = min_x + (static_cast<double>(rand()) / RAND_MAX) * (domain_width - p.radius * 2) + p.radius;
         
-        p.id = world_rank * 1000000 + i; // Unique ID
+        p.id = world_rank * 1000000 + i;
         particles.push_back(p);
     }
 
-    // --- SFML Window (Rank 0 only) ---
     sf::RenderWindow window;
     if (world_rank == 0 && cfg.render) {
         window.create(sf::VideoMode(cfg.world_width, cfg.world_height), "MPI Particle Simulation");
         window.setFramerateLimit(60);
     }
 
-    // --- Main Loop ---
     double dt = 0.1;
     double start_time = MPI_Wtime();
 
     for (int frame = 0; frame < cfg.num_frames; ++frame) {
-        // Handle window events (Rank 0)
         if (world_rank == 0 && cfg.render) {
             sf::Event event;
             while (window.pollEvent(event)) {
@@ -199,29 +178,22 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // 1. Update Position
         for (auto& p : particles) {
             p.update(dt);
         }
 
-        // 2. Wall Collisions (Global Walls: Top/Bottom for everyone, Left for Rank 0, Right for Last Rank)
         for (auto& p : particles) {
             if (p.y > cfg.world_height - p.radius) { p.y = cfg.world_height - p.radius; p.vy = -p.vy; }
             else if (p.y < p.radius) { p.y = p.radius; p.vy = -p.vy; }
             
-            // Only Rank 0 hits the true left wall
             if (world_rank == 0 && p.x < p.radius) { p.x = p.radius; p.vx = -p.vx; }
-            // Only Last Rank hits the true right wall
             if (world_rank == world_size - 1 && p.x > cfg.world_width - p.radius) { 
                 p.x = cfg.world_width - p.radius; p.vx = -p.vx; 
             }
         }
 
-        // 3. MPI Exchange (Migrate particles leaving domain)
         std::vector<MpiParticleData> send_left, send_right;
         
-        // Filter particles: Keep ones inside domain, queue ones leaving
-        // We use std::remove_if to efficiently partition the vector
         auto it = std::remove_if(particles.begin(), particles.end(), [&](const Particle& p) {
             bool remove = false;
             if (p.x < min_x && world_rank > 0) {
@@ -235,18 +207,13 @@ int main(int argc, char* argv[]) {
         });
         particles.erase(it, particles.end());
 
-        // Send/Recv Sizes
         int send_cnt_l = send_left.size();
         int send_cnt_r = send_right.size();
         int recv_cnt_l = 0;
         int recv_cnt_r = 0;
 
-        // Exchange sizes with neighbors
         MPI_Request reqs[4];
         MPI_Status stats[4];
-        
-        // Evens send right first, Odds send left first (Checkerboard pattern to avoid deadlock)
-        // Or simplified: SendRight/RecvLeft, SendLeft/RecvRight
         
         int left_neighbor = (world_rank > 0) ? world_rank - 1 : MPI_PROC_NULL;
         int right_neighbor = (world_rank < world_size - 1) ? world_rank + 1 : MPI_PROC_NULL;
@@ -259,11 +226,9 @@ int main(int argc, char* argv[]) {
                      &recv_cnt_l, 1, MPI_INT, left_neighbor, 1,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-        // Prepare receive buffers
         std::vector<MpiParticleData> recv_left_data(recv_cnt_l);
         std::vector<MpiParticleData> recv_right_data(recv_cnt_r);
 
-        // Exchange Data
         MPI_Sendrecv(send_left.data(), send_cnt_l, mpi_particle_type, left_neighbor, 2,
                      recv_right_data.data(), recv_cnt_r, mpi_particle_type, right_neighbor, 2,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -272,34 +237,25 @@ int main(int argc, char* argv[]) {
                      recv_left_data.data(), recv_cnt_l, mpi_particle_type, left_neighbor, 3,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-        // Unpack received particles into local simulation
         for(const auto& data : recv_left_data) particles.push_back(unpack_particle(data));
         for(const auto& data : recv_right_data) particles.push_back(unpack_particle(data));
 
-        // 4. Local Collisions
-        // Note: For a perfect simulation, you need "Ghost Cells" (sending copies of particles 
-        // near the edge to neighbors without transferring ownership). 
-        // For this benchmark, we skip ghost cells (Collision detection is strictly local).
         handle_collisions_grid_local(particles, grid);
 
-        // 5. Coloring (Visuals)
         for(auto& p : particles) {
              float mag = (p.vx * p.vx + p.vy * p.vy) / 100.0;
              p.updateColor(mag);
         }
 
-        // 6. Rendering (Optional - Gather all to Rank 0)
         if (cfg.render) {
             std::vector<MpiParticleData> local_data;
             local_data.reserve(particles.size());
             for(const auto& p : particles) local_data.push_back(pack_particle(p));
 
-            // Gather sizes
             int local_count = local_data.size();
             std::vector<int> all_counts(world_size);
             MPI_Gather(&local_count, 1, MPI_INT, all_counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-            // Gather data
             std::vector<int> displacements(world_size, 0);
             int total_particles = 0;
             if (world_rank == 0) {
@@ -319,7 +275,7 @@ int main(int argc, char* argv[]) {
             if (world_rank == 0 && window.isOpen()) {
                 window.clear();
                 ColorGradient gradient; 
-                gradient.viridisHeatMap(); // Re-init gradient locally
+                gradient.viridisHeatMap();
 
                 for (const auto& data : global_data) {
                     sf::CircleShape shape(data.radius);
